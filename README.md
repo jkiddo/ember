@@ -1,5 +1,5 @@
 # ember
-A tool for building FHIR transaction bundles based on designated FHIR IG's.
+A tool for building FHIR transaction bundles based on examlpe instances in designated FHIR IG's.
 
 You can run it using eg. ```docker run jkiddo/ember --igIdAndVersion=ch.fhir.ig.ch-core#2.0.0 ```
 
