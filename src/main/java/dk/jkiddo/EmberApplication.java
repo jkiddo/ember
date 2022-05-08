@@ -2,10 +2,17 @@ package dk.jkiddo;
 
 import ca.uhn.fhir.context.FhirContext;
 import ca.uhn.fhir.context.FhirVersionEnum;
+import ca.uhn.fhir.i18n.Msg;
 import ca.uhn.fhir.rest.client.api.ServerValidationModeEnum;
+import ca.uhn.fhir.rest.server.exceptions.InternalErrorException;
+import ca.uhn.fhir.rest.server.exceptions.ResourceNotFoundException;
 import ca.uhn.fhir.util.BundleBuilder;
 import com.google.common.base.Strings;
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -14,6 +21,12 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.apache.commons.io.IOUtils;
+import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.conn.HttpClientConnectionManager;
+import org.apache.http.impl.client.HttpClientBuilder;
+import org.apache.http.impl.conn.BasicHttpClientConnectionManager;
 import org.hl7.fhir.instance.model.api.IBaseResource;
 import org.hl7.fhir.utilities.npm.FilesystemPackageCacheManager;
 import org.hl7.fhir.utilities.npm.IPackageCacheManager;
@@ -59,35 +72,15 @@ public class EmberApplication implements ApplicationRunner {
     }
 
     packageManager = new FilesystemPackageCacheManager(true, new Random().nextInt());
-    NpmPackage npmPackage = null;
-
-    try {
-      npmPackage = packageManager.loadPackage(igIdAndVersion);
-    } catch (NullPointerException npe) {
-      LOG.error("Could not load package: " + igIdAndVersion);
-      LOG.info(npe.getMessage(), npe);
-      System.exit(-2);
-    }
+    NpmPackage npmPackage = loadNpmPackage();
 
     fhirContext = toContext.apply(npmPackage.fhirVersion());
 
     var clientFactory = fhirContext.getRestfulClientFactory();
     clientFactory.setServerValidationMode(ServerValidationModeEnum.NEVER);
 
-    Collection<IBaseResource> resources;
-    if (loadRecursively) {
-      resources = loadExampleResourcesRecursively(npmPackage);
-    } else {
-      resources = loadExampleResources(npmPackage);
-    }
-
-    if (!includeSearchBundles) {
-      resources = resources.stream().filter(r -> !isSearchBundle.test(r))
-          .collect(Collectors.toList());
-    }
-
     var bundleBuilder = new BundleBuilder(fhirContext);
-    resources.forEach(bundleBuilder::addTransactionCreateEntry);
+    loadResources(npmPackage).forEach(bundleBuilder::addTransactionCreateEntry);
     var bundle = bundleBuilder.getBundle();
 
     if (Strings.isNullOrEmpty(serverBase)) {
@@ -100,6 +93,35 @@ public class EmberApplication implements ApplicationRunner {
       LOG.info("Response from server was: " + fhirContext.newJsonParser().setPrettyPrint(true)
           .encodeResourceToString(response));
     }
+  }
+
+  @NotNull
+  private Collection<IBaseResource> loadResources(NpmPackage npmPackage) {
+    Collection<IBaseResource> resources;
+    if (loadRecursively) {
+      resources = loadExampleResourcesRecursively(npmPackage);
+    } else {
+      resources = loadExampleResources(npmPackage);
+    }
+
+    if (!includeSearchBundles) {
+      resources = resources.stream().filter(r -> !isSearchBundle.test(r))
+          .collect(Collectors.toList());
+    }
+    return resources;
+  }
+
+  private NpmPackage loadNpmPackage() throws IOException {
+    NpmPackage npmPackage = null;
+
+    try {
+      npmPackage = packageManager.loadPackage(igIdAndVersion);
+    } catch (NullPointerException npe) {
+      LOG.error("Could not load package: " + igIdAndVersion);
+      LOG.info(npe.getMessage(), npe);
+      System.exit(-2);
+    }
+    return npmPackage;
   }
 
   private @NotNull Collection<IBaseResource> loadExampleResourcesRecursively(
@@ -173,4 +195,35 @@ public class EmberApplication implements ApplicationRunner {
     }
     return false;
   };
+
+  /**
+   * Copied and modified from ca.uhn.fhir.jpa.packages.JpaPackageCache in order to have some consistency
+   * @param thePackageUrl
+   * @return
+   */
+  protected byte[] loadPackageUrlContents(String thePackageUrl) {
+    if (thePackageUrl.startsWith("file:")) {
+      try {
+        byte[] bytes = Files.readAllBytes(Paths.get(new URI(thePackageUrl)));
+        return bytes;
+      } catch (IOException | URISyntaxException e) {
+        throw new InternalErrorException(
+            Msg.code(2024) + "Error loading \"" + thePackageUrl + "\": " + e.getMessage());
+      }
+    } else {
+      HttpClientConnectionManager connManager = new BasicHttpClientConnectionManager();
+      try (CloseableHttpResponse request = HttpClientBuilder
+          .create()
+          .setConnectionManager(connManager)
+          .build()
+          .execute(new HttpGet(thePackageUrl))) {
+        if (request.getStatusLine().getStatusCode() != 200) {
+          throw new ResourceNotFoundException(Msg.code(1303) + "Received HTTP " + request.getStatusLine().getStatusCode() + " from URL: " + thePackageUrl);
+        }
+        return IOUtils.toByteArray(request.getEntity().getContent());
+      } catch (IOException e) {
+        throw new InternalErrorException(Msg.code(1304) + "Error loading \"" + thePackageUrl + "\": " + e.getMessage());
+      }
+    }
+  }
 }
