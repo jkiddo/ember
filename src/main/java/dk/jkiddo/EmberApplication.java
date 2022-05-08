@@ -3,13 +3,14 @@ package dk.jkiddo;
 import ca.uhn.fhir.context.FhirContext;
 import ca.uhn.fhir.context.FhirVersionEnum;
 import ca.uhn.fhir.i18n.Msg;
+import ca.uhn.fhir.rest.client.api.IRestfulClientFactory;
 import ca.uhn.fhir.rest.client.api.ServerValidationModeEnum;
 import ca.uhn.fhir.rest.server.exceptions.InternalErrorException;
 import ca.uhn.fhir.rest.server.exceptions.ResourceNotFoundException;
 import ca.uhn.fhir.util.BundleBuilder;
 import com.google.common.base.Strings;
+import java.io.ByteArrayInputStream;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -24,7 +25,6 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
@@ -56,6 +56,8 @@ public class EmberApplication implements ApplicationRunner {
   String serverBase;
   @Value("${packageId:}")
   String packageId;
+  @Value("${location:}")
+  String location;
   @Value("${loadRecursively:false}")
   boolean loadRecursively;
   @Value("${includeSearchBundles:false}")
@@ -73,51 +75,36 @@ public class EmberApplication implements ApplicationRunner {
   public void run(ApplicationArguments args) throws Exception {
 
     if (!Strings.isNullOrEmpty(directory)) {
-      loadFiles(directory);
+      loadFilesFromDirectory(directory);
       System.exit(1);
     }
 
-    if (Strings.isNullOrEmpty(packageId)) {
-      LOG.error("No igIdAndVersion supplied ... - exiting");
+    if (Strings.isNullOrEmpty(packageId) && Strings.isNullOrEmpty(location)) {
+      LOG.error("No packageId or location supplied ... - exiting");
       System.exit(-1);
     }
 
     packageManager = new FilesystemPackageCacheManager(true, new Random().nextInt());
-    NpmPackage npmPackage = null;
 
-    if (packageId.contains("file:/")) {
-      var names = packageId.split("#");
-      File file = new File(URI.create(names[0]));
-      FileInputStream stream = new FileInputStream(file);
-      packageManager.addPackageToCache(names[2], names[1], stream, "");
-      packageId = names[2] + "#" + names[1];
-    }
-    if (packageId.startsWith("http")) {
-
-      var names = packageId.split("#");
-
-      var file = Files.createTempFile(names[2], ".tgz");
-      FileUtils.copyURLToFile(URI.create(names[0]).toURL(), file.toFile());
-      FileInputStream stream = new FileInputStream(file.toFile());
-      packageManager.addPackageToCache(names[2], names[1], stream, "");
-      packageId = names[2] + "#" + names[1];
+    if (!Strings.isNullOrEmpty(location)) {
+      installPackage();
     }
 
-    try {
-      npmPackage = packageManager.loadPackage(packageId);
-    } catch (NullPointerException npe) {
-      LOG.error("Could not load package: " + packageId);
-      LOG.info(npe.getMessage(), npe);
-      System.exit(-2);
-    }
+    final NpmPackage npmPackage = loadPackage();
 
-    fhirContext = toContext.apply(npmPackage.fhirVersion());
+    fhirContext = new FhirContext(
+        FhirVersionEnum.forVersionString(npmPackage.fhirVersion()));
 
     var clientFactory = fhirContext.getRestfulClientFactory();
     clientFactory.setServerValidationMode(ServerValidationModeEnum.NEVER);
 
     var bundleBuilder = new BundleBuilder(fhirContext);
     loadResources(npmPackage).forEach(bundleBuilder::addTransactionCreateEntry);
+    emitBundle(bundleBuilder, fhirContext, clientFactory);
+  }
+
+  private void emitBundle(BundleBuilder bundleBuilder, FhirContext fhirContext,
+      IRestfulClientFactory clientFactory) {
     var bundle = bundleBuilder.getBundle();
 
     if (Strings.isNullOrEmpty(serverBase)) {
@@ -132,7 +119,29 @@ public class EmberApplication implements ApplicationRunner {
     }
   }
 
-  private void loadFiles(String directory) {
+  private NpmPackage loadPackage() throws IOException {
+    try {
+      return packageManager.loadPackage(packageId);
+    } catch (NullPointerException npe) {
+      LOG.error("Could not load package: " + packageId);
+      LOG.info(npe.getMessage(), npe);
+      throw npe;
+    }
+  }
+
+  private void installPackage() throws IOException {
+    var npmAsBytes = loadPackageUrlContents(location);
+    var npmPackage = NpmPackage.fromPackage(new ByteArrayInputStream(npmAsBytes));
+    packageManager.addPackageToCache(npmPackage.id(), npmPackage.version(),
+        new ByteArrayInputStream(npmAsBytes), npmPackage.description());
+    LOG.warn(
+        "Overwriting parameterized packageId with packageId from location paramter. packageId was '"
+            + packageId + "'. New packageId will be '" + npmPackage.id() + "#"
+            + npmPackage.version() + "'");
+    packageId = npmPackage.id() + "#" + npmPackage.version();
+  }
+
+  private void loadFilesFromDirectory(String directory) {
 
     var fhirContext = FhirContext.forR5();
 
@@ -156,18 +165,7 @@ public class EmberApplication implements ApplicationRunner {
 
     var bundleBuilder = new BundleBuilder(fhirContext);
     resources.forEach(bundleBuilder::addTransactionCreateEntry);
-    var bundle = bundleBuilder.getBundle();
-
-    if (Strings.isNullOrEmpty(serverBase)) {
-      LOG.info("Sending transaction bundle to console");
-      LOG.info(fhirContext.newJsonParser().setPrettyPrint(true).encodeResourceToString(bundle));
-    } else {
-      LOG.info("Sending transaction bundle to: " + serverBase);
-      var response = clientFactory.newGenericClient(
-          serverBase).transaction().withBundle(bundle).execute();
-      LOG.info("Response from server was: " + fhirContext.newJsonParser().setPrettyPrint(true)
-          .encodeResourceToString(response));
-    }
+    emitBundle(bundleBuilder, fhirContext, clientFactory);
 
   }
 
@@ -185,19 +183,6 @@ public class EmberApplication implements ApplicationRunner {
           .collect(Collectors.toList());
     }
     return resources;
-  }
-
-  private NpmPackage loadNpmPackage() throws IOException {
-    NpmPackage npmPackage = null;
-
-    try {
-      npmPackage = packageManager.loadPackage(packageId);
-    } catch (NullPointerException npe) {
-      LOG.error("Could not load package: " + packageId);
-      LOG.info(npe.getMessage(), npe);
-      System.exit(-2);
-    }
-    return npmPackage;
   }
 
   private @NotNull Collection<IBaseResource> loadExampleResourcesRecursively(
@@ -280,10 +265,10 @@ public class EmberApplication implements ApplicationRunner {
    * @return
    */
   protected byte[] loadPackageUrlContents(String thePackageUrl) {
+    final byte[] bytes;
     if (thePackageUrl.startsWith("file:")) {
       try {
-        byte[] bytes = Files.readAllBytes(Paths.get(new URI(thePackageUrl)));
-        return bytes;
+        bytes = Files.readAllBytes(Paths.get(new URI(thePackageUrl)));
       } catch (IOException | URISyntaxException e) {
         throw new InternalErrorException(
             Msg.code(2024) + "Error loading \"" + thePackageUrl + "\": " + e.getMessage());
@@ -300,11 +285,12 @@ public class EmberApplication implements ApplicationRunner {
               Msg.code(1303) + "Received HTTP " + request.getStatusLine().getStatusCode()
                   + " from URL: " + thePackageUrl);
         }
-        return IOUtils.toByteArray(request.getEntity().getContent());
+        bytes = IOUtils.toByteArray(request.getEntity().getContent());
       } catch (IOException e) {
         throw new InternalErrorException(
             Msg.code(1304) + "Error loading \"" + thePackageUrl + "\": " + e.getMessage());
       }
     }
+    return bytes;
   }
 }
