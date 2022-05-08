@@ -13,7 +13,15 @@
   <groupId>org.jkiddo</groupId>
   <artifactId>ember</artifactId>
   <version>0.1.0-SNAPSHOT</version>
-
+  <repositories>
+    <repository>
+      <id>oss-snapshots</id>
+      <snapshots>
+        <enabled>true</enabled>
+      </snapshots>
+      <url>https://oss.sonatype.org/content/repositories/snapshots/</url>
+    </repository>
+  </repositories>
 
   <properties>
     <maven.compiler.source>11</maven.compiler.source>
