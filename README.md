@@ -9,5 +9,5 @@ The ```location``` parameter can be used to point to a local package using ```fi
 
 Mapping the local FHIR into the image and fetching the package using HTTP 
 ```
-docker run -v /Users/jkv/.fhir:/home/nonroot/.fhir ember --location=https://build.fhir.org/ig/hl7-eu/gravitate-health/package.tgz
+docker run -v /Users/jkv/.fhir:/home/nonroot/.fhir jkiddo/ember --location=https://build.fhir.org/ig/hl7-eu/gravitate-health/package.tgz
 ```
