@@ -148,7 +148,7 @@ public class EmberApplication implements ApplicationRunner {
     List<IBaseResource> resources = Stream.of(new File(directory).listFiles())
         .filter(file -> !file.isDirectory())
         .filter(file -> file.getName().endsWith(".json"))
-        .filter(file -> file.getName().contains("mplementatoin"))
+        .filter(file -> file.getName().contains("mplementation"))
         .map(f -> {
           try {
             return new String(Files.readAllBytes(Path.of(f.getPath())));
