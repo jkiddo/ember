@@ -26,7 +26,7 @@
   <properties>
     <maven.compiler.source>11</maven.compiler.source>
     <maven.compiler.target>11</maven.compiler.target>
-    <hapi_version>6.1.2</hapi_version>
+    <hapi_version>6.2.0-PRE15-SNAPSHOT</hapi_version>
   </properties>
 
   <dependencies>

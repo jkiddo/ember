@@ -9,6 +9,26 @@ import ca.uhn.fhir.rest.server.exceptions.InternalErrorException;
 import ca.uhn.fhir.rest.server.exceptions.ResourceNotFoundException;
 import ca.uhn.fhir.util.BundleBuilder;
 import com.google.common.base.Strings;
+import org.apache.commons.io.IOUtils;
+import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.conn.HttpClientConnectionManager;
+import org.apache.http.impl.client.HttpClientBuilder;
+import org.apache.http.impl.conn.BasicHttpClientConnectionManager;
+import org.hl7.fhir.instance.model.api.IBaseResource;
+import org.hl7.fhir.utilities.npm.FilesystemPackageCacheManager;
+import org.hl7.fhir.utilities.npm.IPackageCacheManager;
+import org.hl7.fhir.utilities.npm.NpmPackage;
+import org.jetbrains.annotations.NotNull;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springdoc.webmvc.ui.SwaggerConfig;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.ApplicationArguments;
+import org.springframework.boot.ApplicationRunner;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
@@ -28,27 +48,9 @@ import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import org.apache.commons.io.IOUtils;
-import org.apache.http.client.methods.CloseableHttpResponse;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.conn.HttpClientConnectionManager;
-import org.apache.http.impl.client.HttpClientBuilder;
-import org.apache.http.impl.conn.BasicHttpClientConnectionManager;
-import org.hl7.fhir.instance.model.api.IBaseResource;
-import org.hl7.fhir.r4.model.StructureDefinition;
-import org.hl7.fhir.utilities.npm.FilesystemPackageCacheManager;
-import org.hl7.fhir.utilities.npm.IPackageCacheManager;
-import org.hl7.fhir.utilities.npm.NpmPackage;
-import org.jetbrains.annotations.NotNull;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.ApplicationArguments;
-import org.springframework.boot.ApplicationRunner;
-import org.springframework.boot.SpringApplication;
-
 import static org.awaitility.Awaitility.await;
 
+@SpringBootApplication(exclude = {DataSourceAutoConfiguration.class, SwaggerConfig.class })
 public class EmberApplication implements ApplicationRunner {
 
     public static final String PACKAGE_EXAMPLE = "package/example";
@@ -71,6 +73,7 @@ public class EmberApplication implements ApplicationRunner {
     boolean includeSearchBundles;
     @Value("${directory:}")
     String directory;
+
 
     public static void main(String[] args) {
         LOG.info("STARTING THE APPLICATION");
@@ -107,8 +110,10 @@ public class EmberApplication implements ApplicationRunner {
         var bundleBuilder = new BundleBuilder(fhirContext);
         loadResources(npmPackage).forEach(bundleBuilder::addTransactionCreateEntry);
 
-        if (!Strings.isNullOrEmpty(seconds)) {
-            await().atMost(Integer.parseInt(seconds), TimeUnit.MINUTES).until(() -> serverReady(fhirContext, clientFactory));
+        if(!Strings.isNullOrEmpty(serverBase)) {
+            if (!Strings.isNullOrEmpty(seconds)) {
+                await().atMost(Integer.parseInt(seconds), TimeUnit.MINUTES).until(() -> serverReady(fhirContext, clientFactory));
+            }
         }
 
         emitBundle(bundleBuilder, fhirContext, clientFactory);
@@ -117,7 +122,7 @@ public class EmberApplication implements ApplicationRunner {
     private Boolean serverReady(FhirContext fhirContext, IRestfulClientFactory clientFactory) {
 
         try {
-            clientFactory.newGenericClient(serverBase).search().forResource(StructureDefinition.class).execute();
+            clientFactory.newGenericClient(serverBase).search().forResource("StructureDefinition").execute();
             return true;
         } catch (Exception e) {
             return false;
