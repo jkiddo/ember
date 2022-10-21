@@ -28,6 +28,7 @@ import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.autoconfigure.elasticsearch.ElasticsearchRestClientAutoConfiguration;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
 
 import java.io.ByteArrayInputStream;
@@ -50,7 +51,7 @@ import java.util.stream.Stream;
 
 import static org.awaitility.Awaitility.await;
 
-@SpringBootApplication(exclude = {DataSourceAutoConfiguration.class, SwaggerConfig.class })
+@SpringBootApplication(exclude = {DataSourceAutoConfiguration.class, SwaggerConfig.class, ElasticsearchRestClientAutoConfiguration.class })
 public class EmberApplication implements ApplicationRunner {
 
     public static final String PACKAGE_EXAMPLE = "package/example";
