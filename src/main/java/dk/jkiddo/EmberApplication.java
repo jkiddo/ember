@@ -246,6 +246,9 @@ public class EmberApplication implements ApplicationRunner {
         if (org.hl7.fhir.r4.model.Bundle.class.isInstance(resource)) {
             return ((org.hl7.fhir.r4.model.Bundle) resource).getTypeElement().getValue() == org.hl7.fhir.r4.model.Bundle.BundleType.SEARCHSET;
         }
+        if (org.hl7.fhir.r4b.model.Bundle.class.isInstance(resource)) {
+            return ((org.hl7.fhir.r4b.model.Bundle) resource).getTypeElement().getValue() == org.hl7.fhir.r4b.model.Bundle.BundleType.SEARCHSET;
+        }
         if (org.hl7.fhir.r5.model.Bundle.class.isInstance(resource)) {
             return ((org.hl7.fhir.r5.model.Bundle) resource).getTypeElement().getValue() == org.hl7.fhir.r5.model.Bundle.BundleType.SEARCHSET;
         }
