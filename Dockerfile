@@ -1,4 +1,4 @@
-FROM maven:3.8.6-eclipse-temurin-17 as build-cache
+FROM maven:3.9.1-eclipse-temurin-17 as build-cache
 WORKDIR /tmp/app
 
 COPY pom.xml .
