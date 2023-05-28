@@ -2,19 +2,12 @@ package dk.jkiddo;
 
 import ca.uhn.fhir.context.FhirContext;
 import ca.uhn.fhir.context.FhirVersionEnum;
-import ca.uhn.fhir.i18n.Msg;
+import ca.uhn.fhir.jpa.packages.loader.PackageLoaderSvc;
 import ca.uhn.fhir.rest.client.api.IRestfulClientFactory;
 import ca.uhn.fhir.rest.client.api.ServerValidationModeEnum;
-import ca.uhn.fhir.rest.server.exceptions.InternalErrorException;
-import ca.uhn.fhir.rest.server.exceptions.ResourceNotFoundException;
 import ca.uhn.fhir.util.BundleBuilder;
 import com.google.common.base.Strings;
-import org.apache.commons.io.IOUtils;
-import org.apache.http.client.methods.CloseableHttpResponse;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.conn.HttpClientConnectionManager;
-import org.apache.http.impl.client.HttpClientBuilder;
-import org.apache.http.impl.conn.BasicHttpClientConnectionManager;
+import org.hl7.fhir.instance.model.api.IBaseBundle;
 import org.hl7.fhir.instance.model.api.IBaseResource;
 import org.hl7.fhir.utilities.npm.FilesystemPackageCacheManager;
 import org.hl7.fhir.utilities.npm.IPackageCacheManager;
@@ -34,15 +27,11 @@ import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.List;
-import java.util.Random;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -51,7 +40,7 @@ import java.util.stream.Stream;
 
 import static org.awaitility.Awaitility.await;
 
-@SpringBootApplication(exclude = {DataSourceAutoConfiguration.class, SwaggerConfig.class, ElasticsearchRestClientAutoConfiguration.class })
+@SpringBootApplication(exclude = {DataSourceAutoConfiguration.class, SwaggerConfig.class, ElasticsearchRestClientAutoConfiguration.class})
 public class EmberApplication implements ApplicationRunner {
 
     public static final String PACKAGE_EXAMPLE = "package/example";
@@ -77,50 +66,64 @@ public class EmberApplication implements ApplicationRunner {
 
 
     public static void main(String[] args) {
-        LOG.info("STARTING THE APPLICATION");
+        LOG.info("STARTING EMBER");
         SpringApplication.run(EmberApplication.class, args);
-        LOG.info("APPLICATION FINISHED");
+        LOG.info("ENDING EMBER");
     }
 
     @Override
     public void run(ApplicationArguments args) throws Exception {
 
-        if (!Strings.isNullOrEmpty(directory)) {
-            loadFilesFromDirectory(directory);
-            System.exit(1);
-        }
+        IBaseBundle resultingExampleBundle;
 
+        if (!Strings.isNullOrEmpty(directory))
+            resultingExampleBundle = loadResourcesFromDirectory(new File(directory));
+        else
+            resultingExampleBundle = loadResourcesFromNPM();
+
+        emitBundle(resultingExampleBundle);
+        System.exit(0);
+    }
+
+    @NotNull
+    private IBaseBundle loadResourcesFromDirectory(File directory) {
+
+        var fhirContext = FhirContext.forR5();
+
+        List<IBaseResource> resources = Stream.of(Objects.requireNonNull(directory.listFiles())).filter(file -> !file.isDirectory()).filter(file -> file.getName().endsWith(".json")).filter(file -> file.getName().contains("mplementation")).map(f -> {
+            try {
+                return new String(Files.readAllBytes(Path.of(f.getPath())));
+            } catch (IOException e) {
+                throw new RuntimeException(e.getMessage(), e);
+            }
+        }).map(fhirContext.newJsonParser().setSuppressNarratives(true)::parseResource).collect(Collectors.toList());
+
+        var bundleBuilder = new BundleBuilder(fhirContext);
+        resources.forEach(bundleBuilder::addTransactionCreateEntry);
+        return bundleBuilder.getBundle();
+
+    }
+
+    @NotNull
+    private IBaseBundle loadResourcesFromNPM() throws IOException {
         if (Strings.isNullOrEmpty(packageId) && Strings.isNullOrEmpty(location)) {
             LOG.error("No packageId or location supplied ... - exiting");
             System.exit(-1);
         }
 
-        packageManager = new FilesystemPackageCacheManager(true, new Random().nextInt());
+        packageManager = new FilesystemPackageCacheManager(FilesystemPackageCacheManager.FilesystemPackageCacheMode.USER);
 
         if (!Strings.isNullOrEmpty(location)) {
             installPackage();
         }
 
-        final NpmPackage npmPackage = loadPackage();
-
+        final NpmPackage npmPackage = packageManager.loadPackage(packageId);
         fhirContext = new FhirContext(FhirVersionEnum.forVersionString(npmPackage.fhirVersion()));
 
-        var clientFactory = fhirContext.getRestfulClientFactory();
-        clientFactory.setServerValidationMode(ServerValidationModeEnum.NEVER);
-
-        var bundleBuilder = new BundleBuilder(fhirContext);
-        loadResources(npmPackage).forEach(bundleBuilder::addTransactionCreateEntry);
-
-        if(!Strings.isNullOrEmpty(serverBase)) {
-            if (!Strings.isNullOrEmpty(seconds)) {
-                await().atMost(Integer.parseInt(seconds), TimeUnit.MINUTES).until(() -> serverReady(fhirContext, clientFactory));
-            }
-        }
-
-        emitBundle(bundleBuilder, fhirContext, clientFactory);
+        return loadResources(npmPackage);
     }
 
-    private Boolean serverReady(FhirContext fhirContext, IRestfulClientFactory clientFactory) {
+    private Boolean serverReady(IRestfulClientFactory clientFactory) {
 
         try {
             clientFactory.newGenericClient(serverBase).search().forResource("StructureDefinition").execute();
@@ -130,8 +133,17 @@ public class EmberApplication implements ApplicationRunner {
         }
     }
 
-    private void emitBundle(BundleBuilder bundleBuilder, FhirContext fhirContext, IRestfulClientFactory clientFactory) {
-        var bundle = bundleBuilder.getBundle();
+    private void emitBundle(IBaseBundle bundle) {
+
+        var clientFactory = fhirContext.getRestfulClientFactory();
+        clientFactory.setServerValidationMode(ServerValidationModeEnum.NEVER);
+
+
+        if (!Strings.isNullOrEmpty(serverBase)) {
+            if (!Strings.isNullOrEmpty(seconds)) {
+                await().atMost(Integer.parseInt(seconds), TimeUnit.MINUTES).until(() -> serverReady(clientFactory));
+            }
+        }
 
         if (Strings.isNullOrEmpty(serverBase)) {
             LOG.info("Sending transaction bundle to console");
@@ -143,47 +155,18 @@ public class EmberApplication implements ApplicationRunner {
         }
     }
 
-    private NpmPackage loadPackage() throws IOException {
-        try {
-            return packageManager.loadPackage(packageId);
-        } catch (NullPointerException npe) {
-            LOG.error("Could not load package: " + packageId);
-            LOG.info(npe.getMessage(), npe);
-            throw npe;
-        }
-    }
-
     private void installPackage() throws IOException {
-        var npmAsBytes = loadPackageUrlContents(location);
+
+        var npmAsBytes = new PackageLoaderSvc().loadPackageUrlContents(location);
         var npmPackage = NpmPackage.fromPackage(new ByteArrayInputStream(npmAsBytes));
         packageManager.addPackageToCache(npmPackage.id(), npmPackage.version(), new ByteArrayInputStream(npmAsBytes), npmPackage.description());
         LOG.warn("Overwriting parameterized packageId with packageId from location paramter. packageId was '" + packageId + "'. New packageId will be '" + npmPackage.id() + "#" + npmPackage.version() + "'");
         packageId = npmPackage.id() + "#" + npmPackage.version();
     }
 
-    private void loadFilesFromDirectory(String directory) {
-
-        var fhirContext = FhirContext.forR5();
-
-        List<IBaseResource> resources = Stream.of(new File(directory).listFiles()).filter(file -> !file.isDirectory()).filter(file -> file.getName().endsWith(".json")).filter(file -> file.getName().contains("mplementation")).map(f -> {
-            try {
-                return new String(Files.readAllBytes(Path.of(f.getPath())));
-            } catch (IOException e) {
-                throw new RuntimeException(e.getMessage(), e);
-            }
-        }).map(fhirContext.newJsonParser().setSuppressNarratives(true)::parseResource).collect(Collectors.toList());
-
-        var clientFactory = fhirContext.getRestfulClientFactory();
-        clientFactory.setServerValidationMode(ServerValidationModeEnum.NEVER);
-
-        var bundleBuilder = new BundleBuilder(fhirContext);
-        resources.forEach(bundleBuilder::addTransactionCreateEntry);
-        emitBundle(bundleBuilder, fhirContext, clientFactory);
-
-    }
 
     @NotNull
-    private Collection<IBaseResource> loadResources(NpmPackage npmPackage) {
+    private IBaseBundle loadResources(NpmPackage npmPackage) {
         Collection<IBaseResource> resources;
         if (loadRecursively) {
             resources = loadExampleResourcesRecursively(npmPackage);
@@ -194,7 +177,10 @@ public class EmberApplication implements ApplicationRunner {
         if (!includeSearchBundles) {
             resources = resources.stream().filter(r -> !isSearchBundle.test(r)).collect(Collectors.toList());
         }
-        return resources;
+
+        var bundleBuilder = new BundleBuilder(fhirContext);
+        resources.forEach(bundleBuilder::addTransactionCreateEntry);
+        return bundleBuilder.getBundle();
     }
 
     private @NotNull Collection<IBaseResource> loadExampleResourcesRecursively(NpmPackage npmPackage) {
@@ -211,7 +197,7 @@ public class EmberApplication implements ApplicationRunner {
 
         if (exampleFolder == null) {
             LOG.info("Found no example resources in " + npmPackage.name());
-            return Collections.EMPTY_LIST;
+            return List.of();
         }
 
         var fileNames = exampleFolder.getTypes().values().stream().flatMap(Collection::stream).collect(Collectors.toList());
@@ -226,8 +212,6 @@ public class EmberApplication implements ApplicationRunner {
         }).map(fhirContext.newJsonParser().setSuppressNarratives(true)::parseResource).collect(Collectors.toList());
     }
 
-    Function<String, FhirContext> toContext = (fhirVersionAsString) -> new FhirContext(FhirVersionEnum.forVersionString(fhirVersionAsString));
-
     Function<String, NpmPackage> toNpmPackage = (nameAndVersion) -> {
         try {
             return packageManager.loadPackage(nameAndVersion);
@@ -237,50 +221,21 @@ public class EmberApplication implements ApplicationRunner {
     };
 
     Predicate<IBaseResource> isSearchBundle = (resource) -> {
-        if (org.hl7.fhir.dstu2.model.Bundle.class.isInstance(resource)) {
+        if (resource instanceof org.hl7.fhir.dstu2.model.Bundle) {
             return ((org.hl7.fhir.dstu2.model.Bundle) resource).getTypeElement().getValue() == org.hl7.fhir.dstu2.model.Bundle.BundleType.SEARCHSET;
         }
-        if (org.hl7.fhir.dstu3.model.Bundle.class.isInstance(resource)) {
+        if (resource instanceof org.hl7.fhir.dstu3.model.Bundle) {
             return ((org.hl7.fhir.dstu3.model.Bundle) resource).getTypeElement().getValue() == org.hl7.fhir.dstu3.model.Bundle.BundleType.SEARCHSET;
         }
-        if (org.hl7.fhir.r4.model.Bundle.class.isInstance(resource)) {
+        if (resource instanceof org.hl7.fhir.r4.model.Bundle) {
             return ((org.hl7.fhir.r4.model.Bundle) resource).getTypeElement().getValue() == org.hl7.fhir.r4.model.Bundle.BundleType.SEARCHSET;
         }
-        if (org.hl7.fhir.r4b.model.Bundle.class.isInstance(resource)) {
+        if (resource instanceof org.hl7.fhir.r4b.model.Bundle) {
             return ((org.hl7.fhir.r4b.model.Bundle) resource).getTypeElement().getValue() == org.hl7.fhir.r4b.model.Bundle.BundleType.SEARCHSET;
         }
-        if (org.hl7.fhir.r5.model.Bundle.class.isInstance(resource)) {
+        if (resource instanceof org.hl7.fhir.r5.model.Bundle) {
             return ((org.hl7.fhir.r5.model.Bundle) resource).getTypeElement().getValue() == org.hl7.fhir.r5.model.Bundle.BundleType.SEARCHSET;
         }
         return false;
     };
-
-    /**
-     * Copied and modified from ca.uhn.fhir.jpa.packages.JpaPackageCache in order to have some
-     * consistency
-     *
-     * @param thePackageUrl
-     * @return
-     */
-    protected byte[] loadPackageUrlContents(String thePackageUrl) {
-        final byte[] bytes;
-        if (thePackageUrl.startsWith("file:")) {
-            try {
-                bytes = Files.readAllBytes(Paths.get(new URI(thePackageUrl)));
-            } catch (IOException | URISyntaxException e) {
-                throw new InternalErrorException(Msg.code(2024) + "Error loading \"" + thePackageUrl + "\": " + e.getMessage());
-            }
-        } else {
-            HttpClientConnectionManager connManager = new BasicHttpClientConnectionManager();
-            try (CloseableHttpResponse request = HttpClientBuilder.create().setConnectionManager(connManager).build().execute(new HttpGet(thePackageUrl))) {
-                if (request.getStatusLine().getStatusCode() != 200) {
-                    throw new ResourceNotFoundException(Msg.code(1303) + "Received HTTP " + request.getStatusLine().getStatusCode() + " from URL: " + thePackageUrl);
-                }
-                bytes = IOUtils.toByteArray(request.getEntity().getContent());
-            } catch (IOException e) {
-                throw new InternalErrorException(Msg.code(1304) + "Error loading \"" + thePackageUrl + "\": " + e.getMessage());
-            }
-        }
-        return bytes;
-    }
 }

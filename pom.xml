@@ -7,7 +7,7 @@
   <parent>
     <groupId>org.springframework.boot</groupId>
     <artifactId>spring-boot-starter-parent</artifactId>
-    <version>2.7.11</version>
+    <version>2.7.12</version>
   </parent>
 
   <groupId>org.jkiddo</groupId>
@@ -26,7 +26,7 @@
   <properties>
     <maven.compiler.source>11</maven.compiler.source>
     <maven.compiler.target>11</maven.compiler.target>
-    <hapi_version>6.4.4</hapi_version>
+    <hapi_version>6.6.0</hapi_version>
   </properties>
 
   <dependencies>
@@ -47,7 +47,6 @@
       <version>${hapi_version}</version>
     </dependency>
 
-    <!-- This dependency includes the JPA server itself, which is packaged separately from the rest of HAPI FHIR -->
     <dependency>
       <groupId>ca.uhn.hapi.fhir</groupId>
       <artifactId>hapi-fhir-jpaserver-base</artifactId>
