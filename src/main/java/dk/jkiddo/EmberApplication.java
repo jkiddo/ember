@@ -96,7 +96,7 @@ public class EmberApplication implements ApplicationRunner {
             } catch (IOException e) {
                 throw new RuntimeException(e.getMessage(), e);
             }
-        }).map(fhirContext.newJsonParser().setSuppressNarratives(true)::parseResource).collect(Collectors.toList());
+        }).map(fhirContext.newJsonParser().setSuppressNarratives(true)::parseResource).toList();
 
         var bundleBuilder = new BundleBuilder(fhirContext);
         resources.forEach(bundleBuilder::addTransactionCreateEntry);
@@ -160,7 +160,7 @@ public class EmberApplication implements ApplicationRunner {
         var npmAsBytes = new PackageLoaderSvc().loadPackageUrlContents(location);
         var npmPackage = NpmPackage.fromPackage(new ByteArrayInputStream(npmAsBytes));
         packageManager.addPackageToCache(npmPackage.id(), npmPackage.version(), new ByteArrayInputStream(npmAsBytes), npmPackage.description());
-        LOG.warn("Overwriting parameterized packageId with packageId from location paramter. packageId was '" + packageId + "'. New packageId will be '" + npmPackage.id() + "#" + npmPackage.version() + "'");
+        LOG.warn("Overwriting parameterized packageId with packageId from location parameter. packageId was '" + packageId + "'. New packageId will be '" + npmPackage.id() + "#" + npmPackage.version() + "'");
         packageId = npmPackage.id() + "#" + npmPackage.version();
     }
 
@@ -200,8 +200,13 @@ public class EmberApplication implements ApplicationRunner {
             return List.of();
         }
 
-        var fileNames = exampleFolder.getTypes().values().stream().flatMap(Collection::stream).collect(Collectors.toList());
-        LOG.info("Found " + fileNames.size() + " example resources in " + npmPackage.name());
+      List<String> fileNames;
+      try {
+        fileNames = exampleFolder.getTypes().values().stream().flatMap(Collection::stream).toList();
+      } catch (IOException e) {
+        throw new RuntimeException(e.getMessage(), e);
+      }
+      LOG.info("Found " + fileNames.size() + " example resources in " + npmPackage.name());
 
         return fileNames.stream().map(fileName -> {
             try {
