@@ -4,7 +4,7 @@ A tool for building FHIR transaction bundles based on example instances in desig
 ## usage
 There are 6 parameters: 
 
-- ```directory```: (only works with FHIR R5) can be used if you just wan't to  scrape a directory of FHIR resources and combine them to a FHIR transaction bundle.
+- ```directory```: (only works with FHIR R5 - optional) can be used if you just wan't to  scrape a directory of FHIR resources and combine them to a FHIR transaction bundle.
 - ```serverBase```: (optional) If ```serverbase``` is omitted, the total bundle transaction is printed in the terminal aka. a "dry-run". If ```serverbase``` is provided it will send the bundle transaction to the server address.
 - ```packageId```: The ```packageId``` is the IG id and version.
 - ```includeSearchBundles```: (optional) By default search bundles are not included - they can be by setting ```includeSearchBundles``` to true.
