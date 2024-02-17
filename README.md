@@ -1,5 +1,5 @@
 # ember
-A tool for building FHIR transaction bundles based on example instances in designated FHIR IG's. This makes it easy to bootstrap or load existing FHIR servers that supports transaction bundles with test/example data from IG's.
+A tool for building FHIR transaction bundles based on example instances in designated FHIR IG's. This makes it easy to bootstrap or load existing FHIR servers that supports transaction bundles with test/example data from IG's. Where ember solely focuses on example resources the tool at https://github.com/brianpos/UploadFIG also handles other scenarios.
 
 ## usage
 There are 6 parameters: 
