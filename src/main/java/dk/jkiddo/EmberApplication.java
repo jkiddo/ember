@@ -9,6 +9,7 @@ import ca.uhn.fhir.util.BundleBuilder;
 import com.google.common.base.Strings;
 import org.hl7.fhir.instance.model.api.IBaseBundle;
 import org.hl7.fhir.instance.model.api.IBaseResource;
+import org.hl7.fhir.r5.model.Bundle;
 import org.hl7.fhir.utilities.npm.FilesystemPackageCacheManager;
 import org.hl7.fhir.utilities.npm.IPackageCacheManager;
 import org.hl7.fhir.utilities.npm.NpmPackage;
@@ -44,6 +45,7 @@ import static org.awaitility.Awaitility.await;
 public class EmberApplication implements ApplicationRunner {
 
     public static final String PACKAGE_EXAMPLE = "package/example";
+    public static final String PACKAGE = "package";
 
     private static final Logger LOG = LoggerFactory.getLogger(EmberApplication.class);
     private FhirContext fhirContext;
@@ -63,6 +65,12 @@ public class EmberApplication implements ApplicationRunner {
     boolean includeSearchBundles;
     @Value("${directory:}")
     String directory;
+    @Value("${docsAndLists:false}")
+    boolean docsAndLists;
+    @Value("${includeRoot:false}")
+    boolean includeRoot;
+    @Value("${usePUT:false}")
+    boolean usePUT;
 
 
     public static void main(String[] args) {
@@ -99,7 +107,12 @@ public class EmberApplication implements ApplicationRunner {
         }).map(fhirContext.newJsonParser().setSuppressNarratives(true)::parseResource).toList();
 
         var bundleBuilder = new BundleBuilder(fhirContext);
-        resources.forEach(bundleBuilder::addTransactionCreateEntry);
+        if(usePUT) {
+            resources.forEach(bundleBuilder::addTransactionUpdateEntry);
+        } else {
+            resources.forEach(bundleBuilder::addTransactionCreateEntry);
+        }
+
         return bundleBuilder.getBundle();
 
     }
@@ -178,8 +191,24 @@ public class EmberApplication implements ApplicationRunner {
             resources = resources.stream().filter(r -> !isSearchBundle.test(r)).collect(Collectors.toList());
         }
 
+        if(docsAndLists) {
+            resources = resources.stream().filter(r -> {
+                if (r instanceof org.hl7.fhir.r5.model.Bundle) {
+                    return ((Bundle) r).getTypeElement().getValue() == org.hl7.fhir.r5.model.Bundle.BundleType.DOCUMENT;
+                }
+                if (r instanceof org.hl7.fhir.r5.model.ListResource) {
+                    return true;
+                }
+                return false;
+            }).collect(Collectors.toList());
+        }
+
         var bundleBuilder = new BundleBuilder(fhirContext);
-        resources.forEach(bundleBuilder::addTransactionCreateEntry);
+        if(usePUT) {
+            resources.forEach(bundleBuilder::addTransactionUpdateEntry);
+        } else {
+            resources.forEach(bundleBuilder::addTransactionCreateEntry);
+        }
         return bundleBuilder.getBundle();
     }
 
@@ -193,24 +222,32 @@ public class EmberApplication implements ApplicationRunner {
     @NotNull
     private List<IBaseResource> loadExampleResources(NpmPackage npmPackage) {
         LOG.info("Loading sample resources from " + npmPackage.name());
-        var exampleFolder = npmPackage.getFolders().get(PACKAGE_EXAMPLE);
+        var folder = npmPackage.getFolders().get(PACKAGE_EXAMPLE);
 
-        if (exampleFolder == null) {
+        if (!includeRoot)
+            return getResources(npmPackage, folder);
+        else
+            return  Stream.concat(getResources(npmPackage, folder).stream(), getResources(npmPackage, npmPackage.getFolders().get(PACKAGE)).stream()).toList();
+    }
+
+    @NotNull
+    private List<IBaseResource> getResources(NpmPackage npmPackage, NpmPackage.NpmPackageFolder folder) {
+        if (folder == null) {
             LOG.info("Found no example resources in " + npmPackage.name());
             return List.of();
         }
 
-      List<String> fileNames;
-      try {
-        fileNames = exampleFolder.getTypes().values().stream().flatMap(Collection::stream).toList();
-      } catch (IOException e) {
-        throw new RuntimeException(e.getMessage(), e);
-      }
-      LOG.info("Found " + fileNames.size() + " example resources in " + npmPackage.name());
+        List<String> fileNames;
+        try {
+          fileNames = folder.getTypes().values().stream().flatMap(Collection::stream).toList();
+        } catch (IOException e) {
+          throw new RuntimeException(e.getMessage(), e);
+        }
+        LOG.info("Found " + fileNames.size() + " example resources in " + npmPackage.name());
 
         return fileNames.stream().map(fileName -> {
             try {
-                return new String(exampleFolder.fetchFile(fileName));
+                return new String(folder.fetchFile(fileName));
             } catch (IOException e) {
                 throw new RuntimeException(e.getMessage(), e);
             }
