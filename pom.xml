@@ -7,7 +7,7 @@
   <parent>
     <groupId>org.springframework.boot</groupId>
     <artifactId>spring-boot-starter-parent</artifactId>
-    <version>3.2.2</version>
+    <version>3.3.3</version>
   </parent>
 
   <groupId>org.jkiddo</groupId>
@@ -26,7 +26,7 @@
   <properties>
     <maven.compiler.source>17</maven.compiler.source>
     <maven.compiler.target>17</maven.compiler.target>
-    <hapi_version>7.0.0</hapi_version>
+    <hapi_version>7.4.4</hapi_version>
   </properties>
 
   <dependencies>
@@ -52,13 +52,6 @@
       <groupId>ca.uhn.hapi.fhir</groupId>
       <artifactId>hapi-fhir-jpaserver-base</artifactId>
       <version>${hapi_version}</version>
-    </dependency>
-
-    <!-- https://mvnrepository.com/artifact/com.fasterxml.jackson.core/jackson-core -->
-    <dependency>
-      <groupId>com.fasterxml.jackson.core</groupId>
-      <artifactId>jackson-core</artifactId>
-      <version>2.16.1</version>
     </dependency>
 
 

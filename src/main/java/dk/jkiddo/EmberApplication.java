@@ -74,9 +74,7 @@ public class EmberApplication implements ApplicationRunner {
 
 
     public static void main(String[] args) {
-        LOG.info("STARTING EMBER");
         SpringApplication.run(EmberApplication.class, args);
-        LOG.info("ENDING EMBER");
     }
 
     @Override
@@ -124,7 +122,7 @@ public class EmberApplication implements ApplicationRunner {
             System.exit(-1);
         }
 
-        packageManager = new FilesystemPackageCacheManager(FilesystemPackageCacheManager.FilesystemPackageCacheMode.USER);
+        packageManager = new FilesystemPackageCacheManager.Builder().build();
 
         if (!Strings.isNullOrEmpty(location)) {
             installPackage();
@@ -159,12 +157,12 @@ public class EmberApplication implements ApplicationRunner {
         }
 
         if (Strings.isNullOrEmpty(serverBase)) {
-            LOG.info("Sending transaction bundle to console");
+            LOG.debug("Sending transaction bundle to console");
             LOG.info(fhirContext.newJsonParser().setPrettyPrint(true).encodeResourceToString(bundle));
         } else {
-            LOG.info("Sending transaction bundle to: " + serverBase);
+            LOG.debug("Sending transaction bundle to: " + serverBase);
             var response = clientFactory.newGenericClient(serverBase).transaction().withBundle(bundle).execute();
-            LOG.info("Response from server was: " + fhirContext.newJsonParser().setPrettyPrint(true).encodeResourceToString(response));
+            LOG.debug("Response from server was: " + fhirContext.newJsonParser().setPrettyPrint(true).encodeResourceToString(response));
         }
     }
 
@@ -221,7 +219,7 @@ public class EmberApplication implements ApplicationRunner {
 
     @NotNull
     private List<IBaseResource> loadExampleResources(NpmPackage npmPackage) {
-        LOG.info("Loading sample resources from " + npmPackage.name());
+        LOG.debug("Loading sample resources from " + npmPackage.name());
         var folder = npmPackage.getFolders().get(PACKAGE_EXAMPLE);
 
         if (!includeRoot)
@@ -233,7 +231,7 @@ public class EmberApplication implements ApplicationRunner {
     @NotNull
     private List<IBaseResource> getResources(NpmPackage npmPackage, NpmPackage.NpmPackageFolder folder) {
         if (folder == null) {
-            LOG.info("Found no example resources in " + npmPackage.name());
+            LOG.debug("Found no example resources in " + npmPackage.name());
             return List.of();
         }
 
@@ -243,7 +241,7 @@ public class EmberApplication implements ApplicationRunner {
         } catch (IOException e) {
           throw new RuntimeException(e.getMessage(), e);
         }
-        LOG.info("Found " + fileNames.size() + " example resources in " + npmPackage.name());
+        LOG.debug("Found " + fileNames.size() + " example resources in " + npmPackage.name());
 
         return fileNames.stream().map(fileName -> {
             try {
